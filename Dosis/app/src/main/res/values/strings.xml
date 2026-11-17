@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Dosis</string>
+    <string name="notification_channel_id">dosis_medication_channel</string>
+    <string name="notification_channel_name">Recordatorios de medicamentos</string>
+    <string name="notification_channel_desc">Notificaciones para recordar tomar medicamentos</string>
+</resources>
