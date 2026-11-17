@@ -30,6 +30,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,9 +46,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material3.AppScaffold
 import androidx.wear.compose.material3.ScreenScaffold
 import androidx.wear.compose.material3.Text
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import com.example.contar.data.DosisItem
 import com.example.contar.presentation.theme.ContarTheme
 import com.example.contar.presentation.theme.LocalDosisColors
@@ -56,7 +66,8 @@ enum class DosisScreen {
     RESUMEN,
     RECORDATORIO,
     CONFIRMACION,
-    NUEVA_ALARMA
+    NUEVA_ALARMA,
+    VINCULAR_QR
 }
 
 enum class PickerType {
@@ -66,11 +77,12 @@ enum class PickerType {
 }
 
 class MainActivity : ComponentActivity() {
+    private lateinit var viewModel: DosisViewModel
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        viewModel = DosisViewModel(application)
         setContent {
-            val context = LocalContext.current
-            val viewModel = remember { DosisViewModel(context.applicationContext as Application) }
             DosisApp(viewModel = viewModel)
         }
     }
@@ -79,14 +91,14 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun DosisApp(viewModel: DosisViewModel? = null) {
     val context = LocalContext.current
-    val vm = viewModel ?: remember { DosisViewModel(context.applicationContext as Application) }
+    val vm = remember(viewModel) { viewModel ?: DosisViewModel(context.applicationContext as Application) }
     val haptic = LocalHapticFeedback.current
 
-    // Actualizador en tiempo real del reloj del sistema (cada segundo)
-    LaunchedEffect(Unit) {
+    // Actualizador en tiempo real del reloj del sistema
+    LaunchedEffect(vm) {
         while (true) {
             vm.updateCurrentTime()
-            delay(1000)
+            delay(10000)
         }
     }
 
@@ -127,6 +139,10 @@ fun DosisApp(viewModel: DosisViewModel? = null) {
                             onResetDay = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 vm.resetToday()
+                            },
+                            onOpenQr = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                vm.navigateTo(DosisScreen.VINCULAR_QR)
                             }
                         )
                     }
@@ -194,6 +210,20 @@ fun DosisApp(viewModel: DosisViewModel? = null) {
                             }
                         )
                     }
+
+                    DosisScreen.VINCULAR_QR -> {
+                        QRPairingScreen(
+                            time = vm.currentTimeString,
+                            onBack = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                vm.navigateTo(DosisScreen.RESUMEN)
+                            },
+                            onToggleTheme = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                vm.toggleTheme()
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -213,162 +243,197 @@ fun ResumenDelDiaScreen(
     onToggleTaken: (DosisItem) -> Unit = {},
     onOpenNewAlarm: () -> Unit = {},
     onToggleTheme: () -> Unit = {},
-    onResetDay: () -> Unit = {}
+    onResetDay: () -> Unit = {},
+    onOpenQr: () -> Unit = {}
 ) {
     val isRound = LocalConfiguration.current.isScreenRound
     val colors = LocalDosisColors.current
-    val scrollState = rememberScrollState()
+    val listState = rememberScalingLazyListState()
+    val focusRequester = remember { FocusRequester() }
 
-    val screenHorizontalPadding = if (isRound) 14.dp else 12.dp
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
     val headerHorizontalPadding = if (isRound) 14.dp else 4.dp
     val listHorizontalPadding = if (isRound) 10.dp else 4.dp
-    val bottomSpacerHeight = if (isRound) 38.dp else 12.dp
 
     val totalDosis = dosisList.size
     val tomadasCount = dosisList.count { it.tomada }
     val allCompleted = totalDosis > 0 && tomadasCount == totalDosis
 
-    ScreenScaffold(scrollState = scrollState) {
-        Column(
+    ScreenScaffold(scrollState = listState) { paddingValues ->
+        ScalingLazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = screenHorizontalPadding),
+                .focusRequester(focusRequester)
+                .focusable(),
+            state = listState,
+            autoCentering = null,
+            contentPadding = paddingValues,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            DosisTopBar(time = time, onToggleTheme = onToggleTheme)
-
-            Spacer(modifier = Modifier.height(if (isRound) 2.dp else 4.dp))
-
-            // Encabezado "Hoy" + Contador de dosis reactivo
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = headerHorizontalPadding),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Bottom
-            ) {
-                Text(
-                    text = "Hoy",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.textPrimary
-                )
-                Text(
-                    text = if (totalDosis > 0) "$tomadasCount de $totalDosis tomadas" else "Sin dosis",
-                    fontSize = 11.sp,
-                    color = if (allCompleted) colors.brandGreen else colors.textSecondary,
-                    modifier = Modifier.padding(bottom = 2.dp)
-                )
+            item {
+                DosisTopBar(time = time, onToggleTheme = onToggleTheme, onOpenQr = onOpenQr)
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            item {
+                Spacer(modifier = Modifier.height(if (isRound) 2.dp else 4.dp))
+            }
+
+            // Encabezado "Hoy" + Contador de dosis reactivo
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = headerHorizontalPadding),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Text(
+                        text = "Hoy",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textPrimary
+                    )
+                    Text(
+                        text = if (totalDosis > 0) "$tomadasCount de $totalDosis tomadas" else "Sin dosis",
+                        fontSize = 11.sp,
+                        color = if (allCompleted) colors.brandGreen else colors.textSecondary,
+                        modifier = Modifier.padding(bottom = 2.dp)
+                    )
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Tarjeta destacada: Próxima dosis o estado de completado
             if (nextDosis != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(if (isRound) 0.94f else 1f)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(colors.nextDoseCardBg)
-                        .then(
-                            if (colors.isDark) {
-                                Modifier.border(
-                                    BorderStroke(1.dp, colors.nextDoseCardBorder),
-                                    RoundedCornerShape(18.dp)
-                                )
-                            } else Modifier
-                        )
-                        .clickable { onOpenReminder(nextDosis) }
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                ) {
-                    Column {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = badgeText.uppercase(Locale.getDefault()),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.nextDoseBadgeText,
-                                letterSpacing = 0.5.sp
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(if (isRound) 0.94f else 1f)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(colors.nextDoseCardBg)
+                            .then(
+                                if (colors.isDark) {
+                                    Modifier.border(
+                                        BorderStroke(1.dp, colors.nextDoseCardBorder),
+                                        RoundedCornerShape(18.dp)
+                                    )
+                                } else Modifier
                             )
-                            ChevronRightIcon(
-                                modifier = Modifier.size(9.dp),
-                                color = colors.nextDoseBadgeText
+                            .clickable { onOpenReminder(nextDosis) }
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                    ) {
+                        Column {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = badgeText.uppercase(Locale.getDefault()),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.nextDoseBadgeText,
+                                    letterSpacing = 0.5.sp
+                                )
+                                ChevronRightIcon(
+                                    modifier = Modifier.size(9.dp),
+                                    color = colors.nextDoseBadgeText
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(2.dp))
+
+                            Text(
+                                text = nextDosis.hora,
+                                fontSize = 28.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.nextDoseTimeText
+                            )
+
+                            Spacer(modifier = Modifier.height(1.dp))
+
+                            Text(
+                                text = "${nextDosis.nombre} · ${nextDosis.dosis}",
+                                fontSize = 13.sp,
+                                color = colors.nextDoseSubText
                             )
                         }
-
-                        Spacer(modifier = Modifier.height(2.dp))
-
-                        Text(
-                            text = nextDosis.hora,
-                            fontSize = 28.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.nextDoseTimeText
-                        )
-
-                        Spacer(modifier = Modifier.height(1.dp))
-
-                        Text(
-                            text = "${nextDosis.nombre} · ${nextDosis.dosis}",
-                            fontSize = 13.sp,
-                            color = colors.nextDoseSubText
-                        )
                     }
                 }
             } else if (allCompleted) {
-                // Todas tomadas hoy
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(if (isRound) 0.94f else 1f)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(colors.nextDoseCardBg)
-                        .clickable { onResetDay() }
-                        .padding(horizontal = 14.dp, vertical = 10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(if (isRound) 0.94f else 1f)
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(colors.nextDoseCardBg)
+                            .clickable { onResetDay() }
+                            .padding(horizontal = 14.dp, vertical = 10.dp)
                     ) {
-                        CheckCircleIcon(
-                            modifier = Modifier.size(24.dp),
-                            circleColor = colors.chipBg,
-                            checkColor = colors.chipText
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "¡TODO AL DÍA!",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = colors.brandGreen
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CheckCircleIcon(
+                                modifier = Modifier.size(24.dp),
+                                circleColor = colors.chipBg,
+                                checkColor = colors.chipText
                             )
-                            Text(
-                                text = "Todas las tomas hechas",
-                                fontSize = 12.sp,
-                                color = colors.textPrimary
-                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "¡TODO AL DÍA!",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.brandGreen
+                                )
+                                Text(
+                                    text = "Todas las tomas hechas",
+                                    fontSize = 12.sp,
+                                    color = colors.textPrimary
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Lista interactiva de todas las tomas del día
             if (dosisList.isEmpty()) {
-                Text(
-                    text = "No tienes alarmas programadas.\nToca abajo para agregar una.",
-                    fontSize = 12.sp,
-                    color = colors.textSecondary,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(vertical = 12.dp)
-                )
+                item {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp)
+                    ) {
+                        Text(
+                            text = "Sin alarmas vinculadas",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.textPrimary,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Toca arriba en 'Vincular móvil' para escanear el código QR y sincronizar tus alarmas.",
+                            fontSize = 11.sp,
+                            color = colors.textSecondary,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
             } else {
-                dosisList.forEach { dosis ->
+                items(dosisList.size) { index ->
+                    val dosis = dosisList[index]
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -419,45 +484,50 @@ fun ResumenDelDiaScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            item {
+                Spacer(modifier = Modifier.height(8.dp))
+            }
 
             // Botón rápido para agregar nueva alarma ("+ Nueva alarma")
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(colors.chipBg)
-                    .clickable { onOpenNewAlarm() }
-                    .padding(horizontal = 12.dp, vertical = 5.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                PlusIcon(
-                    modifier = Modifier.size(10.dp),
-                    color = colors.chipText
-                )
-                Spacer(modifier = Modifier.width(5.dp))
-                Text(
-                    text = "Nueva alarma",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.chipText
-                )
-            }
-
-            // Si todas están completadas, permitir reiniciar el día con un toque
-            if (allCompleted) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Reiniciar tomas de hoy",
-                    fontSize = 10.sp,
-                    color = colors.textSecondary,
+            item {
+                Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
-                        .clickable { onResetDay() }
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                )
+                        .background(colors.chipBg)
+                        .clickable { onOpenNewAlarm() }
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    PlusIcon(
+                        modifier = Modifier.size(10.dp),
+                        color = colors.chipText
+                    )
+                    Spacer(modifier = Modifier.width(5.dp))
+                    Text(
+                        text = "Nueva alarma",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.chipText
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(bottomSpacerHeight))
+            if (allCompleted) {
+                item {
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+                item {
+                    Text(
+                        text = "Reiniciar tomas de hoy",
+                        fontSize = 10.sp,
+                        color = colors.textSecondary,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .clickable { onResetDay() }
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -487,10 +557,11 @@ fun RecordatorioDosisScreen(
     val detalleDosis = dosis?.dosis ?: "50 mg · 1 comprimido"
     val instruccion = dosis?.instruccion ?: "Con un vaso de agua"
 
-    ScreenScaffold(scrollState = scrollState) {
+    ScreenScaffold(scrollState = scrollState) { paddingValues ->
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .padding(paddingValues)
                 .verticalScroll(scrollState)
                 .padding(horizontal = screenHorizontalPadding),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -661,10 +732,11 @@ fun ConfirmacionTomaScreen(
     val tomadas = dosisList.count { it.tomada }
     val total = dosisList.size
 
-    ScreenScaffold(scrollState = scrollState) {
+    ScreenScaffold(scrollState = scrollState) { paddingValues ->
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .padding(paddingValues)
                 .verticalScroll(scrollState)
                 .padding(horizontal = screenHorizontalPadding),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -877,10 +949,11 @@ fun NuevaAlarmaScreen(
         "Lunes a Viernes"
     )
 
-    ScreenScaffold(scrollState = scrollState) {
+    ScreenScaffold(scrollState = scrollState) { paddingValues ->
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .fillMaxWidth()
+                .padding(paddingValues)
                 .verticalScroll(scrollState)
                 .padding(horizontal = screenHorizontalPadding),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -1451,6 +1524,165 @@ fun ResumenDelDiaSquarePreview() {
                 nextDosis = sampleList[1],
                 badgeText = "PRÓXIMA · EN 2 MIN"
             )
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// PANTALLA 5: Código QR de Vinculación con Celular
+// -------------------------------------------------------------
+@Composable
+fun QrCodeImage(
+    content: String,
+    modifier: Modifier = Modifier,
+    sizePx: Int = 300,
+    mainColor: Color = Color.Black,
+    backgroundColor: Color = Color.White
+) {
+    val bitMatrix = remember(content, sizePx) {
+        try {
+            val writer = QRCodeWriter()
+            writer.encode(content, BarcodeFormat.QR_CODE, sizePx, sizePx)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    if (bitMatrix != null) {
+        Box(
+            modifier = modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(backgroundColor)
+                .padding(6.dp)
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val matrixWidth = bitMatrix.width
+                val matrixHeight = bitMatrix.height
+                val cellWidth = size.width / matrixWidth
+                val cellHeight = size.height / matrixHeight
+
+                for (x in 0 until matrixWidth) {
+                    for (y in 0 until matrixHeight) {
+                        if (bitMatrix.get(x, y)) {
+                            drawRect(
+                                color = mainColor,
+                                topLeft = Offset(x * cellWidth, y * cellHeight),
+                                size = Size(cellWidth + 0.4f, cellHeight + 0.4f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun QRPairingScreen(
+    time: String = "08:00",
+    onBack: () -> Unit = {},
+    onToggleTheme: () -> Unit = {}
+) {
+    val isRound = LocalConfiguration.current.isScreenRound
+    val colors = LocalDosisColors.current
+    val listState = rememberScalingLazyListState()
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    val modelName = remember { android.os.Build.MODEL ?: "Smartwatch" }
+    val qrContent = remember {
+        """{"app":"Dosis","nodeId":"watch_$modelName","deviceName":"$modelName"}"""
+    }
+
+    ScreenScaffold(scrollState = listState) { paddingValues ->
+        ScalingLazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(focusRequester)
+                .focusable()
+                .background(colors.background),
+            state = listState,
+            contentPadding = paddingValues,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable { onBack() }
+                            .padding(4.dp)
+                    ) {
+                        ArrowBackIcon(
+                            modifier = Modifier.size(16.dp),
+                            color = colors.brandGreen
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Vincular Celular",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = colors.textPrimary
+                    )
+                }
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(2.dp))
+            }
+
+            item {
+                QrCodeImage(
+                    content = qrContent,
+                    modifier = Modifier.size(if (isRound) 115.dp else 135.dp),
+                    mainColor = Color.Black,
+                    backgroundColor = Color.White
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
+            item {
+                Text(
+                    text = "Escanea este código con la app Dosis en tu cel",
+                    fontSize = 10.sp,
+                    color = colors.textSecondary,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+
+            item {
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+
+            item {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(50))
+                        .background(colors.chipBg)
+                        .clickable { onBack() }
+                        .padding(horizontal = 14.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        text = "Volver",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.chipText
+                    )
+                }
+            }
         }
     }
 }

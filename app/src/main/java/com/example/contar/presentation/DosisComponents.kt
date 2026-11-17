@@ -369,17 +369,76 @@ fun ArrowBackIcon(
 }
 
 @Composable
+fun QrCodeIcon(
+    modifier: Modifier = Modifier,
+    color: Color
+) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        val strokePx = 1.2.dp.toPx()
+        // Top-left finder pattern
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(w * 0.05f, h * 0.05f),
+            size = Size(w * 0.4f, h * 0.4f),
+            cornerRadius = CornerRadius(1.dp.toPx()),
+            style = Stroke(strokePx)
+        )
+        drawRect(
+            color = color,
+            topLeft = Offset(w * 0.17f, h * 0.17f),
+            size = Size(w * 0.16f, h * 0.16f)
+        )
+        // Top-right finder pattern
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(w * 0.55f, h * 0.05f),
+            size = Size(w * 0.4f, h * 0.4f),
+            cornerRadius = CornerRadius(1.dp.toPx()),
+            style = Stroke(strokePx)
+        )
+        drawRect(
+            color = color,
+            topLeft = Offset(w * 0.67f, h * 0.17f),
+            size = Size(w * 0.16f, h * 0.16f)
+        )
+        // Bottom-left finder pattern
+        drawRoundRect(
+            color = color,
+            topLeft = Offset(w * 0.05f, h * 0.55f),
+            size = Size(w * 0.4f, h * 0.4f),
+            cornerRadius = CornerRadius(1.dp.toPx()),
+            style = Stroke(strokePx)
+        )
+        drawRect(
+            color = color,
+            topLeft = Offset(w * 0.17f, h * 0.67f),
+            size = Size(w * 0.16f, h * 0.16f)
+        )
+        // Bottom-right data modules
+        drawRect(
+            color = color,
+            topLeft = Offset(w * 0.55f, h * 0.55f),
+            size = Size(w * 0.16f, h * 0.16f)
+        )
+        drawRect(
+            color = color,
+            topLeft = Offset(w * 0.79f, h * 0.79f),
+            size = Size(w * 0.16f, h * 0.16f)
+        )
+    }
+}
+
+@Composable
 fun DosisTopBar(
     time: String = "07:58",
-    onToggleTheme: () -> Unit = {}
+    onToggleTheme: () -> Unit = {},
+    onOpenQr: () -> Unit = {}
 ) {
     val isRound = LocalConfiguration.current.isScreenRound
     val colors = LocalDosisColors.current
 
-    // Insets responsivos para pantallas circulares:
-    // En pantallas redondas, las esquinas superiores no existen y el ancho útil en la parte alta
-    // es menor, por lo que agregamos un margen horizontal y superior adecuado para que
-    // quede perfectamente enmarcado dentro del arco de la esfera.
     val horizontalPadding = if (isRound) 24.dp else 6.dp
     val topPadding = if (isRound) 10.dp else 2.dp
 
@@ -395,7 +454,7 @@ fun DosisTopBar(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
                 .clip(RoundedCornerShape(50))
-                .clickable { onToggleTheme() }
+                .clickable { onOpenQr() }
                 .padding(horizontal = 4.dp, vertical = 2.dp)
         ) {
             PillIcon(
@@ -404,9 +463,14 @@ fun DosisTopBar(
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
-                text = "Dosis",
+                text = "Vincular móvil",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
+                color = colors.brandGreen
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+            QrCodeIcon(
+                modifier = Modifier.size(11.dp),
                 color = colors.brandGreen
             )
         }
@@ -416,7 +480,10 @@ fun DosisTopBar(
             fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             color = colors.textPrimary,
-            modifier = Modifier.padding(end = 2.dp)
+            modifier = Modifier
+                .clip(RoundedCornerShape(50))
+                .clickable { onToggleTheme() }
+                .padding(horizontal = 4.dp, vertical = 2.dp)
         )
     }
 }

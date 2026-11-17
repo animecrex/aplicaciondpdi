@@ -1,15 +1,22 @@
 package com.example.contar.data
 
 import android.content.Context
+import android.util.Log
+import com.google.android.gms.tasks.Tasks
+import com.google.android.gms.wearable.Wearable
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONArray
+import org.json.JSONObject
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
 /**
  * Repositorio para persistir y gestionar las dosis y configuraciones en SharedPreferences.
  */
-class DosisRepository(context: Context) {
-    private val prefs = context.getSharedPreferences("dosis_app_prefs", Context.MODE_PRIVATE)
+class DosisRepository(private val appContext: Context) {
+    private val prefs = appContext.getSharedPreferences("dosis_app_prefs", Context.MODE_PRIVATE)
 
     companion object {
         private const val KEY_DOSIS_ITEMS = "key_dosis_items"
@@ -22,9 +29,7 @@ class DosisRepository(context: Context) {
     fun getDosisList(): List<DosisItem> {
         val jsonString = prefs.getString(KEY_DOSIS_ITEMS, null)
         if (jsonString.isNullOrEmpty()) {
-            val defaults = getDefaultDosisList()
-            saveDosisList(defaults)
-            return defaults
+            return emptyList()
         }
 
         return try {
@@ -35,9 +40,7 @@ class DosisRepository(context: Context) {
             }
             list.sortedWith(compareBy({ it.hora }, { it.nombre }))
         } catch (e: Exception) {
-            val defaults = getDefaultDosisList()
-            saveDosisList(defaults)
-            defaults
+            emptyList()
         }
     }
 
@@ -94,9 +97,10 @@ class DosisRepository(context: Context) {
         if (index != -1) {
             current[index] = current[index].copy(
                 tomada = true,
-                horaTomada = time
+                horaTomada = time,
             )
             saveDosisList(current)
+            sendActionToPhone("/medication/taken", id)
         }
         return current
     }
@@ -110,7 +114,7 @@ class DosisRepository(context: Context) {
         if (index != -1) {
             current[index] = current[index].copy(
                 tomada = false,
-                horaTomada = null
+                horaTomada = null,
             )
             saveDosisList(current)
         }
@@ -135,7 +139,7 @@ class DosisRepository(context: Context) {
             current[index] = item.copy(hora = newTime)
             val sorted = current.sortedWith(compareBy({ it.hora }, { it.nombre }))
             saveDosisList(sorted)
-            return sorted
+            sendActionToPhone("/medication/snooze", id)
         }
         return current
     }
@@ -166,38 +170,29 @@ class DosisRepository(context: Context) {
         prefs.edit().putBoolean(KEY_DARK_THEME, dark).apply()
     }
 
+    fun sendActionToPhone(path: String, medicationId: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val payload = JSONObject().apply {
+                    put("medication_id", medicationId)
+                    put("scheduled_time", System.currentTimeMillis())
+                }.toString().toByteArray(Charsets.UTF_8)
+
+                val nodes = Tasks.await(Wearable.getNodeClient(appContext).connectedNodes)
+                for (node in nodes) {
+                    Wearable.getMessageClient(appContext).sendMessage(
+                        node.id,
+                        path,
+                        payload,
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e("DosisRepository", "Error al enviar mensaje al teléfono", e)
+            }
+        }
+    }
+
     private fun getDefaultDosisList(): List<DosisItem> {
-        return listOf(
-            DosisItem(
-                id = "1",
-                nombre = "Vitamina D",
-                dosis = "1 cápsula",
-                instruccion = "Con el desayuno",
-                hora = "07:00",
-                repeticion = "Cada día",
-                tomada = true,
-                horaTomada = "07:02"
-            ),
-            DosisItem(
-                id = "2",
-                nombre = "Losartán",
-                dosis = "50 mg · 1 comprimido",
-                instruccion = "Con un vaso de agua",
-                hora = "08:00",
-                repeticion = "Cada día",
-                tomada = false,
-                horaTomada = null
-            ),
-            DosisItem(
-                id = "3",
-                nombre = "Metformina",
-                dosis = "850 mg",
-                instruccion = "Con la cena",
-                hora = "21:00",
-                repeticion = "Cada día",
-                tomada = false,
-                horaTomada = null
-            )
-        )
+        return emptyList()
     }
 }

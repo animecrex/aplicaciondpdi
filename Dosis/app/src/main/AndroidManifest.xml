@@ -17,9 +17,11 @@
     <!-- Permiso para mantener el dispositivo activo al disparar alarma -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- Permisos futuros para Wear OS -->
+    <!-- Permisos para Wear OS y Cámara QR -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:name=".DosisApplication"
@@ -72,6 +74,18 @@
         </receiver>
 
         <!-- Canal de notificaciones (configurado en DosisApplication) -->
+
+        <!-- Servicio de escucha para la Wearable Data Layer API (Wear OS) -->
+        <service
+            android:name="com.dosis.app.wearable.PhoneWearableListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
 
         <!-- Proveedor de FileProvider para futura integración Wear OS -->
         <provider

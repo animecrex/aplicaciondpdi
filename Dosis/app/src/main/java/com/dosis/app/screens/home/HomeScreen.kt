@@ -27,6 +27,7 @@ import java.util.*
 fun HomeScreen(
     onAddMedication: () -> Unit,
     onMedicationClick: (Int) -> Unit,
+    onOpenWearableScreen: () -> Unit = {},
     viewModel: HomeViewModel = viewModel()
 ) {
     val todayMedications by viewModel.todayMedications.collectAsState()
@@ -55,13 +56,24 @@ fun HomeScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = "Dosis",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
+                    Column(
+                        modifier = Modifier.clickable { onOpenWearableScreen() }
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Dosis",
+                                style = MaterialTheme.typography.headlineMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(
+                                imageVector = Icons.Filled.Watch,
+                                contentDescription = "Vincular Reloj",
+                                tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                         Text(
                             text = today,
                             style = MaterialTheme.typography.bodySmall,
@@ -73,6 +85,13 @@ fun HomeScreen(
                     containerColor = MaterialTheme.colorScheme.primary
                 ),
                 actions = {
+                    IconButton(onClick = onOpenWearableScreen) {
+                        Icon(
+                            Icons.Filled.QrCodeScanner,
+                            contentDescription = "Vincular Smartwatch con QR",
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
                     IconButton(onClick = onAddMedication) {
                         Icon(
                             Icons.Filled.Add,
@@ -281,7 +300,7 @@ private fun EmptyMedicationsCard(onAddMedication: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
-                Icons.Filled.MedicationLiquid,
+                Icons.Filled.Medication,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
                 modifier = Modifier.size(64.dp)

@@ -47,6 +47,9 @@ fun DosisNavHost(navController: NavHostController) {
                 onAddMedication = { navController.navigate(DosisScreen.AddMedication.route) },
                 onMedicationClick = { medicationId ->
                     navController.navigate(DosisScreen.MedicationDetail.createRoute(medicationId))
+                },
+                onOpenWearableScreen = {
+                    navController.navigate(DosisScreen.WearableStatus.route)
                 }
             )
         }

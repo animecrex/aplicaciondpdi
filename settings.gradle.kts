@@ -24,4 +24,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "contar"
 include(":app")
- 
+include(":mobile")
+project(":mobile").projectDir = file("Dosis/app")
